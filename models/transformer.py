@@ -7,7 +7,6 @@ import torch.nn.functional as F
 
 class MLP(nn.Module):
     """Rudimentaty MLP class"""
-
     def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.1):
         super().__init__()
         self.fc1 = nn.Linear(in_dim, hidden_dim)
