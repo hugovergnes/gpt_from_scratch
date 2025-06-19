@@ -10,6 +10,7 @@ from datetime import datetime
 import tiktoken
 from dataset import create_dataloaders
 from models import GPT
+from utils.checkpoint import setup_ckpt_directory, save_checkpoint
 
 
 def run_evaluation(model, device):
@@ -29,7 +30,11 @@ def run_evaluation(model, device):
     return avg_val_loss
 
 if __name__ == "__main__":
+    # Seed
     torch.manual_seed(1337)
+
+    # Prepare folders for checkpoints and data.
+    setup_ckpt_directory('checkpoints')
 
     # Config
     # Percentage of data that goes into the train split
@@ -45,6 +50,7 @@ if __name__ == "__main__":
     dropout=0.2
     n_evals = 100
     evals_iter = 200
+    save_interval = 2000  # Save checkpoint every n steps
 
     compile = False
     device = 'cuda' if torch.cuda.is_available() else 'mps'
@@ -117,7 +123,18 @@ if __name__ == "__main__":
         scaler.step(optimizer) if use_amp else optimizer.step()
         if use_amp:
             scaler.update()
+        
+        # Save
+        if batch_idx > 0 and batch_idx % save_interval == 0:
+            save_checkpoint(
+                model=model,
+                optimizer=optimizer,
+                step=batch_idx,
+                loss=loss.item(),
+                prefix="gpt"
+            )
 
+        # Eval
         if batch_idx % n_evals == 0:
             avg_val_loss = run_evaluation(model, device)
             if SHOW_LOSS:
