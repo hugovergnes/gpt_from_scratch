@@ -6,18 +6,20 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
-    """Rudimentaty MLP class"""
+    """Rudimentary MLP with SwiGLU activation function."""
     def __init__(self, in_dim, hidden_dim, out_dim, dropout=0.1):
         super().__init__()
-        self.fc1 = nn.Linear(in_dim, hidden_dim)
-        self.non_lin = nn.GELU()
-        self.fc2 = nn.Linear(hidden_dim, out_dim)
+        self.gate_proj = nn.Linear(in_dim, hidden_dim, bias=False)
+        self.up_proj = nn.Linear(in_dim, hidden_dim, bias=False)
+        self.down_proj = nn.Linear(hidden_dim, out_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
-
+    
     def forward(self, x):
-        x = self.non_lin(self.fc1(x))
+        gate = self.gate_proj(x)
+        up = self.up_proj(x)
+        x = F.silu(gate) * up  # SwiGLU
         x = self.dropout(x)
-        return self.fc2(x)
+        return self.down_proj(x)
 
 
 class CausalSelfAttention(nn.Module):
@@ -63,10 +65,9 @@ class CausalSelfAttention(nn.Module):
 class Block(nn.Module):
     def __init__(self, embed_dim, num_head, mlp_hidden_mult=4, dropout=0.1):
         super().__init__()
-        self.ln1 = nn.LayerNorm(embed_dim)
-        self.ln2 = nn.LayerNorm(embed_dim)
+        self.ln1 = nn.RMSNorm(embed_dim)
+        self.ln2 = nn.RMSNorm(embed_dim)
         self.attn = CausalSelfAttention(embed_dim=embed_dim, num_head=num_head, dropout=dropout)
-
         self.mlp = MLP(embed_dim, mlp_hidden_mult * embed_dim, embed_dim, dropout=dropout)
 
     def forward(self, x):
@@ -92,6 +93,7 @@ class GPT(nn.Module):
         mlp_hidden_mult=4,
         dropout=0,
         max_seq_len=5000,
+        weight_tying=False,
     ):
         super().__init__()
         # Lookup table for logits. Init with a random value.
@@ -113,7 +115,8 @@ class GPT(nn.Module):
         self.embed_dim = embed_dim
 
         # Weight tying from the GPT2 paper, this improves stability supposedly
-        # self.lm_head.weight = self.token_embedding_table.weight
+        if weight_tying:
+            self.lm_head.weight = self.token_embedding_table.weight
 
     def forward(self, idx):
         """
