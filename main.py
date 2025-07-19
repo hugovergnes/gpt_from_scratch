@@ -11,7 +11,7 @@ from models import GPT
 from utils.checkpoint import setup_ckpt_directory, save_checkpoint
 
 
-def run_evaluation(model, device):
+def run_evaluation(model, device, val_loader):
     model.eval()
     val_losses = []
     with torch.no_grad():
@@ -55,7 +55,8 @@ if __name__ == "__main__":
     # Percentage of data that goes into the train split
     TRAINVALSPLIT = 0.9
     BATCH_SIZE = 12
-    BLOCK_SIZE = 64
+    DATASET = ['char', 'token'][0]
+    BLOCK_SIZE = 64 if DATASET == 'char' else 128
     NUMBER_OF_TRAIN_BATCHES = 2000
     SHOW_LOSS = False
     learning_rate = 1e-3
@@ -93,7 +94,17 @@ if __name__ == "__main__":
     train_data = data[: int(TRAINVALSPLIT * len(data))].clone()
     val_data = data[int(TRAINVALSPLIT * len(data)) :].clone()
 
-    train_loader, val_loader = create_dataloaders(train_data, val_data, block_size=BLOCK_SIZE, batch_size=BATCH_SIZE, evals_iter=evals_iter)
+    if DATASET == 'token':
+        token_file = "tokenized_openwebtext/openwebtext_tokens_128_train.npy"
+        train_loader, val_loader = create_dataloaders(
+            train_data=token_file,
+            val_data=token_file.replace("train", "val"),
+            batch_size=BATCH_SIZE,
+            block_size=BLOCK_SIZE,
+            dataset_type="token"
+        )
+    if DATASET == 'char':
+        train_loader, val_loader = create_dataloaders(train_data, val_data, block_size=BLOCK_SIZE, batch_size=BATCH_SIZE, evals_iter=evals_iter)
 
     model = GPT(vocab_size,
                 BLOCK_SIZE,
@@ -153,7 +164,7 @@ if __name__ == "__main__":
 
         # Eval
         if batch_idx % n_evals == 0:
-            avg_val_loss = run_evaluation(model, device)
+            avg_val_loss = run_evaluation(model, device, val_loader)
             if SHOW_LOSS:
                 losses.append(avg_val_loss)
             model.train()
