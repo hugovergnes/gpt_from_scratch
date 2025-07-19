@@ -1,13 +1,11 @@
-"""This code simply tests out a BigramModel.
-We use it to set up the scaff holding of the data and model training."""
-import matplotlib.pyplot as plt
-
+"""This code simply train the Transformer model."""
+from datetime import datetime
 import torch
 import torch.nn as nn
-from datetime import datetime
-
-
 import tiktoken
+import time
+import matplotlib.pyplot as plt
+
 from dataset import create_dataloaders
 from models import GPT
 from utils.checkpoint import setup_ckpt_directory, save_checkpoint
@@ -29,6 +27,23 @@ def run_evaluation(model, device):
     print(f'[Eval] Step {batch_idx}: Val Loss = {avg_val_loss:.4f} [{current_time}]')
     return avg_val_loss
 
+def set_device():
+    if torch.cuda.is_available():
+        return 'cuda'
+    elif torch.mps.is_available():
+        return 'mps'
+    else:
+        return 'cpu'
+
+def set_dtype():
+    if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    # TODO: Check torch is >2.1
+    elif torch.mps.is_available():
+        return torch.bfloat16
+    else:
+        return torch.float32
+
 if __name__ == "__main__":
     # Seed
     torch.manual_seed(1337)
@@ -49,13 +64,16 @@ if __name__ == "__main__":
     embed_dim = 256
     dropout=0.2
     n_evals = 100
-    evals_iter = 200
+    log_every = 50 # Log the throughput every x batches.
+    evals_iter = 500 # Evals every n iters
     save_interval = 2000  # Save checkpoint every n steps
 
     compile = False
-    device = 'cuda' if torch.cuda.is_available() else 'mps'
-    # Float 16 will not work on CPU
-    dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float32
+    
+    device = set_device()
+    # Float 16 will not work on CPU.
+    # Bloat16 is experimental on mps device.
+    dtype = set_dtype()
 
 
     print(f'Device: {device}')
@@ -63,12 +81,6 @@ if __name__ == "__main__":
 
     with open("data/input.txt", "r") as f:
         text = f.read()
-
-    # This is character level
-    # all_chars = sorted(list(set(text)))
-    # vocab_size = len(all_chars)
-    # encode = make_encode_function(all_chars)
-    # decode = make_decode_function(all_chars)
     
     enc = tiktoken.get_encoding("gpt2")
     encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
@@ -77,7 +89,6 @@ if __name__ == "__main__":
 
     print(f"Vocab size: {vocab_size}")
 
-    # Only 65 characters.
     data = torch.tensor(encode(text), dtype=torch.long)
     train_data = data[: int(TRAINVALSPLIT * len(data))].clone()
     val_data = data[int(TRAINVALSPLIT * len(data)) :].clone()
@@ -108,6 +119,7 @@ if __name__ == "__main__":
         if batch_idx > NUMBER_OF_TRAIN_BATCHES:
             break
         
+        start = time.perf_counter()
         x, y = x.to(device=device), y.to(device=device)
         optimizer.zero_grad()
         if use_amp:
@@ -123,6 +135,11 @@ if __name__ == "__main__":
         scaler.step(optimizer) if use_amp else optimizer.step()
         if use_amp:
             scaler.update()
+        end = time.perf_counter()
+        if batch_idx % log_every == 0:
+            elapsed = end - start
+            samples_per_sec = x.shape[0] / elapsed
+            print(f"[Step {batch_idx}] Throughput: {samples_per_sec:.2f} samples/sec")
         
         # Save
         if batch_idx > 0 and batch_idx % save_interval == 0:
