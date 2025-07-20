@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from dataset import create_dataloaders
 from models import GPT
 from utils.checkpoint import setup_ckpt_directory, save_checkpoint
+from warmup import WarmupCosineScheduler
 
 
 def run_evaluation(model, device, val_loader):
@@ -57,9 +58,11 @@ if __name__ == "__main__":
     BATCH_SIZE = 12
     DATASET = 'char' # Should be in ['char', 'token']
     BLOCK_SIZE = 64 if DATASET == 'char' else 128
-    NUMBER_OF_TRAIN_BATCHES = 2000
+    NUMBER_OF_TRAIN_BATCHES = 2000 # 30_000 for webext
     SHOW_LOSS = False
+    MAX_NORM = 1.0 # Maximum value of the gradient norm. Improves stability.
     learning_rate = 1e-3
+    warmup_steps = int(0.05 * NUMBER_OF_TRAIN_BATCHES) # 5% warmup
     number_of_layers = 8
     number_of_heads = 8
     embed_dim = 256
@@ -120,6 +123,12 @@ if __name__ == "__main__":
 
     # Very small model, thus we can use a pretty high lr
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    scheduler = WarmupCosineScheduler(
+        optimizer,
+        warmup_steps=warmup_steps,
+        total_steps=NUMBER_OF_TRAIN_BATCHES,
+        min_lr=1e-5  # You can set this to 0 if you want
+    )
     use_amp = device == 'cuda'
     scaler = torch.amp.GradScaler(enabled=use_amp)
 
@@ -143,14 +152,18 @@ if __name__ == "__main__":
 
 
         scaler.scale(loss).backward() if use_amp else loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=MAX_NORM)
         scaler.step(optimizer) if use_amp else optimizer.step()
         if use_amp:
             scaler.update()
+        scheduler.step()
+
         end = time.perf_counter()
         if batch_idx % log_every == 0:
             elapsed = end - start
             samples_per_sec = x.shape[0] / elapsed
-            print(f"[Step {batch_idx}] Throughput: {samples_per_sec:.2f} samples/sec")
+            lr = scheduler.get_last_lr()[0]
+            print(f"[Step {batch_idx}] Throughput: {samples_per_sec:.2f} samples/sec. LR: {lr:.6f}")
         
         # Save
         if batch_idx > 0 and batch_idx % save_interval == 0:
