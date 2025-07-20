@@ -172,3 +172,9 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Ignore all checkpoint files and folders
+checkpoints/
+*.ckpt
+*.pt
+*.pth
