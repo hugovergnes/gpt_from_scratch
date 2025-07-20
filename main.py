@@ -24,7 +24,7 @@ def run_evaluation(model, device, val_loader):
 
     avg_val_loss = sum(val_losses) / len(val_losses)
     current_time = datetime.now().strftime("%H:%M:%S")
-    print(f'[Eval] Step {batch_idx}: Val Loss = {avg_val_loss:.4f} [{current_time}]')
+    print(f'[Eval] Step: Val Loss = {avg_val_loss:.4f} [{current_time}]')
     return avg_val_loss
 
 def set_device():
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     # Percentage of data that goes into the train split
     TRAINVALSPLIT = 0.9
     BATCH_SIZE = 12
-    DATASET = ['char', 'token'][0]
+    DATASET = 'char' # Should be in ['char', 'token']
     BLOCK_SIZE = 64 if DATASET == 'char' else 128
     NUMBER_OF_TRAIN_BATCHES = 2000
     SHOW_LOSS = False
@@ -163,7 +163,7 @@ if __name__ == "__main__":
             )
 
         # Eval
-        if batch_idx % n_evals == 0:
+        if (batch_idx + 1) % n_evals == 0:
             avg_val_loss = run_evaluation(model, device, val_loader)
             if SHOW_LOSS:
                 losses.append(avg_val_loss)
