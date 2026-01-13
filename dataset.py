@@ -3,6 +3,7 @@ Usually they are splitted in 2.
 """
 import torch
 from torch.utils.data import Dataset, DataLoader, RandomSampler
+import numpy as np
 
 def make_encode_function(all_chars):
     """Encode character to integer

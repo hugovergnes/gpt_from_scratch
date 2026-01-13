@@ -1,4 +1,4 @@
-"""This code simply train the Transformer model."""
+"""This code simply trains the Transformer model."""
 from datetime import datetime
 import torch
 import torch.nn as nn
@@ -45,6 +45,15 @@ def set_dtype():
     else:
         return torch.float32
 
+def count_parameters(model):
+    return sum([p.numel() for p in model.parameters()])
+
+def encode(s):
+    return enc.encode(s, allowed_special={" "})
+
+def decode(l):
+    return enc.decode(l)
+
 if __name__ == "__main__":
     # Seed
     torch.manual_seed(1337)
@@ -55,17 +64,17 @@ if __name__ == "__main__":
     # Config
     # Percentage of data that goes into the train split
     TRAINVALSPLIT = 0.9
-    BATCH_SIZE = 12
-    DATASET = 'char' # Should be in ['char', 'token']
+    BATCH_SIZE = 32
+    DATASET = 'token' # Should be in ['char', 'token']
     BLOCK_SIZE = 64 if DATASET == 'char' else 128
-    NUMBER_OF_TRAIN_BATCHES = 2000 # 30_000 for webext
+    NUMBER_OF_TRAIN_BATCHES = 30_000 # 30_000 for webext
     SHOW_LOSS = False
     MAX_NORM = 1.0 # Maximum value of the gradient norm. Improves stability.
     learning_rate = 1e-3
     warmup_steps = int(0.05 * NUMBER_OF_TRAIN_BATCHES) # 5% warmup
-    number_of_layers = 8
+    number_of_layers = 36
     number_of_heads = 8
-    embed_dim = 256
+    embed_dim = 1024
     dropout=0.2
     n_evals = 100
     log_every = 50 # Log the throughput every x batches.
@@ -73,7 +82,7 @@ if __name__ == "__main__":
     save_interval = 2000  # Save checkpoint every n steps
 
     compile = False
-    
+
     device = set_device()
     # Float 16 will not work on CPU.
     # Bloat16 is experimental on mps device.
@@ -87,8 +96,6 @@ if __name__ == "__main__":
         text = f.read()
     
     enc = tiktoken.get_encoding("gpt2")
-    encode = lambda s: enc.encode(s, allowed_special={"<|endoftext|>"})
-    decode = lambda l: enc.decode(l)
     vocab_size = enc.n_vocab
 
     print(f"Vocab size: {vocab_size}")
@@ -98,7 +105,7 @@ if __name__ == "__main__":
     val_data = data[int(TRAINVALSPLIT * len(data)) :].clone()
 
     if DATASET == 'token':
-        token_file = "tokenized_openwebtext/openwebtext_tokens_128_train.npy"
+        token_file = "data/tokenized_openwebtext/openwebtext_tokens_128_train.npy"
         train_loader, val_loader = create_dataloaders(
             train_data=token_file,
             val_data=token_file.replace("train", "val"),
@@ -115,6 +122,9 @@ if __name__ == "__main__":
                 number_of_heads=number_of_heads,
                 embed_dim=embed_dim,
                 dropout=dropout)
+    
+    print(f"Number of parameters: {count_parameters(model)}")
+
     model = model.to(device=device, dtype=dtype)
     if compile:
         model = torch.compile(model)
@@ -129,8 +139,6 @@ if __name__ == "__main__":
         total_steps=NUMBER_OF_TRAIN_BATCHES,
         min_lr=1e-5  # You can set this to 0 if you want
     )
-    use_amp = device == 'cuda'
-    scaler = torch.amp.GradScaler(enabled=use_amp)
 
 
     losses = []
@@ -142,20 +150,15 @@ if __name__ == "__main__":
         start = time.perf_counter()
         x, y = x.to(device=device), y.to(device=device)
         optimizer.zero_grad()
-        if use_amp:
-            with torch.amp.autocast():
-                logits = model(x)
-                loss = loss_function(logits.view(-1, logits.size(-1)), y.view(-1))
-        else:
+        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
             logits = model(x)
             loss = loss_function(logits.view(-1, logits.size(-1)), y.view(-1))
 
 
-        scaler.scale(loss).backward() if use_amp else loss.backward()
+
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=MAX_NORM)
-        scaler.step(optimizer) if use_amp else optimizer.step()
-        if use_amp:
-            scaler.update()
+        optimizer.step()
         scheduler.step()
 
         end = time.perf_counter()

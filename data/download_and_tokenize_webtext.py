@@ -92,5 +92,5 @@ if __name__ == "__main__":
 
     main(out_dir=args.out_dir, block_size=args.block_size, split=args.split, max_docs=args.max_docs)
 
-    # python download_and_tokenize_openwebtext.py --max_docs 1000
-    # python download_and_tokenize_openwebtext.py
+    # python download_and_tokenize_webtext.py --max_docs 1000
+    # python download_and_tokenize_webtext.py
